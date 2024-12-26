@@ -1,0 +1,64 @@
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVR
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+
+# Fetch Bitcoin data for the past year (365 days)
+def fetch_data(crypto_id="bitcoin", days=365):
+    url = f"https://api.coingecko.com/api/v3/coins/{crypto_id}/market_chart?vs_currency=usd&days={days}"
+    response = requests.get(url)
+    data = response.json()['prices']  # Extracting the 'prices' field
+    df = pd.DataFrame(data, columns=['timestamp', 'price'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    return df
+
+# Preprocess data (scaling prices)
+def preprocess_data(df):
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    df['scaled_price'] = scaler.fit_transform(df[['price']])
+    return df, scaler
+
+# Prepare the data for supervised learning
+def prepare_supervised_data(df, lag_days=5):
+    for i in range(1, lag_days + 1):
+        df[f'lag_{i}'] = df['scaled_price'].shift(i)
+    df = df.dropna()  # Remove rows with NaN values due to lagging
+    X = df[[f'lag_{i}' for i in range(1, lag_days + 1)]].values
+    y = df['scaled_price'].values
+    return X, y, df
+
+# Plot predictions vs actual prices
+def plot_predictions(df, y_test, y_pred, model_name="Model"):
+    plt.figure(figsize=(14, 7))
+    plt.plot(df['timestamp'][-len(y_test):], y_test, label='Actual Prices', color='blue')
+    plt.plot(df['timestamp'][-len(y_pred):], y_pred, label='Predicted Prices', color='red')
+    plt.title(f'Bitcoin Price Prediction using {model_name}')
+    plt.xlabel('Date')
+    plt.ylabel('Scaled Price')
+    plt.legend()
+    plt.show()
+
+# Fetch and preprocess data
+df = fetch_data()
+df, scaler = preprocess_data(df)
+
+# Prepare supervised data
+X, y, supervised_df = prepare_supervised_data(df)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+
+# Train Linear Regression model
+lr_model = LinearRegression()
+lr_model.fit(X_train, y_train)
+lr_pred = lr_model.predict(X_test)
+lr_mse = mean_squared_error(y_test, lr_pred)
+print(f"Linear Regression Mean Squared Error: {lr_mse}")
+
+# Plot Linear Regression predictions
+plot_predictions(supervised_df, y_test, lr_pred, model_name="Linear Regression")
